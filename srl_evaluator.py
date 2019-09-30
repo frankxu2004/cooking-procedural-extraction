@@ -4,7 +4,7 @@ from collections import defaultdict
 
 import nltk
 
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, f1_score, accuracy_score, precision_score, recall_score
 from utils import get_srl_predictor, read_vocab, parse_result, filter_chunks, get_args, get_verb
 from fuzzywuzzy import fuzz
 
@@ -68,6 +68,18 @@ def write_predicted(pred_useful, pred_verbs, pred_args):
             to_write['PredArgs'] = pred_a
             writer.writerow(to_write)
 
+def evaluate_keysent(gt, pred):
+    y_true_useful = []
+    y_pred_useful = []
+    for yid in gt:
+        assert len(gt[yid]) == len(pred[yid])
+        y_true_useful.extend(gt[yid])
+        y_pred_useful.extend(pred[yid])
+    print("Precision: ", precision_score(y_true_useful, y_pred_useful, average='binary'))
+    print("Recall: ", recall_score(y_true_useful, y_pred_useful, average='binary'))
+    print("F1 Score: ", f1_score(y_true_useful, y_pred_useful, average='binary'))
+    print("Acc: ", accuracy_score(y_true_useful, y_pred_useful))
+    print()
 
 def evaluate(gt, pred):
     total = 0
@@ -165,17 +177,7 @@ if __name__ == '__main__':
     with open("raw_srl.pkl", 'wb') as raw_file:
         pickle.dump(dump_srl_raw_results, raw_file)
 
-    # sentence isUseful
-    y_true_useful = []
-    y_pred_useful = []
-    for yid in gt:
-        assert len(gt[yid]) == len(pred_useful[yid])
-        y_true_useful.extend(gt[yid])
-        y_pred_useful.extend(pred_useful[yid])
-
-    print(classification_report(y_true_useful, y_pred_useful))
-
-    write_predicted(pred_useful, pred_verbs, pred_args)
+    evaluate_keysent(gt, pred_useful)
 
     evaluate(gt_verbs, pred_verbs)
 
