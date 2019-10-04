@@ -3,10 +3,10 @@ import pickle
 from collections import defaultdict
 
 import nltk
-
-from sklearn.metrics import classification_report, f1_score, accuracy_score, precision_score, recall_score
-from utils import get_srl_predictor, read_vocab, parse_result, filter_chunks, get_args, get_verb
 from fuzzywuzzy import fuzz
+from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
+
+from utils import get_srl_predictor, read_vocab, parse_result, filter_chunks, get_args, get_verb
 
 lemmatizer = nltk.stem.WordNetLemmatizer()
 
@@ -14,11 +14,12 @@ def filter_by_vocab(chunks, vocab):
     ret = []
     for chunk in chunks:
         for idx, c in enumerate(chunk):
-            lemma = lemmatizer.lemmatize(c['text'], 'v')
-            if c['type'] == "V" and lemma in vocab:
-                chunk[idx]['text'] = lemma
-                ret.append(chunk)
-                break
+            if c['type'] == "V":
+                lemma = lemmatizer.lemmatize(c['text'], 'v')
+                if lemma in vocab:
+                    chunk[idx]['text'] = lemma
+                    ret.append(chunk)
+                    break
     return ret
 
 
@@ -145,37 +146,50 @@ def get_dataset():
             args[youtube_id].append(all_args)
     return data, sents, verbs, args
 
+def srl_post_heuristics(srl_chunks, vocab, pred_useful, pred_verbs, pred_args):
+    filtered_chunks = filter_by_vocab(filter_chunks(srl_chunks), vocab)
+    if len(filtered_chunks) == 0:
+        pred_args[yid].append([])
+        pred_verbs[yid].append([])
+        pred_useful[yid].append(0)
+    else:
+        pred_args[yid].append(get_args(filtered_chunks))
+        pred_verbs[yid].append(get_verb(filtered_chunks))
+        pred_useful[yid].append(1)
+
 
 if __name__ == '__main__':
     vocab = read_vocab('youcook2/1.2.cooking_vocab.strict_filtered.unsorted.lst')
+    use_existing_srl_results = True
 
     gt, sents, gt_verbs, gt_args = get_dataset()
-    srl_predictor = get_srl_predictor()
 
     pred_useful = defaultdict(list)
     pred_verbs = defaultdict(list)
     pred_args = defaultdict(list)
 
-    dump_srl_raw_results = {}
-    for yid in sents:
-        dump_srl_raw_results[yid] = []
-        for sent in sents[yid]:
-            srl = srl_predictor.predict_json({'sentence': sent})
-            srl_chunks = parse_result(srl)
-            dump_srl_raw_results[yid].append((sent, srl_chunks))
-            filtered_chunks = filter_by_vocab(filter_chunks(srl_chunks), vocab)
-            if len(filtered_chunks) == 0:
-                pred_args[yid].append([])
-                pred_verbs[yid].append([])
-                pred_useful[yid].append(0)
-            else:
-                pred_args[yid].append(get_args(filtered_chunks))
-                pred_verbs[yid].append(get_verb(filtered_chunks))
-                pred_useful[yid].append(1)
+    if use_existing_srl_results:
+        print("Reading SRL raw results")
+        dump_srl_raw_results = pickle.load(open("raw_srl.pkl", 'rb'))
+        for yid in sents:
+            assert len(sents[yid]) == len(dump_srl_raw_results[yid])
+            for idx, sent in enumerate(sents[yid]):
+                srl_chunks = dump_srl_raw_results[yid][idx][1]
+                srl_post_heuristics(srl_chunks, vocab, pred_useful, pred_verbs, pred_args)
+    else:
+        srl_predictor = get_srl_predictor()
+        dump_srl_raw_results = {}
+        for yid in sents:
+            dump_srl_raw_results[yid] = []
+            for sent in sents[yid]:
+                srl = srl_predictor.predict_json({'sentence': sent})
+                srl_chunks = parse_result(srl)
+                dump_srl_raw_results[yid].append((sent, srl_chunks))
+                srl_post_heuristics(srl_chunks, vocab, pred_useful, pred_verbs, pred_args)
 
-    print("Dumping SRL raw results")
-    with open("raw_srl.pkl", 'wb') as raw_file:
-        pickle.dump(dump_srl_raw_results, raw_file)
+        print("Dumping SRL raw results")
+        with open("raw_srl.pkl", 'wb') as raw_file:
+            pickle.dump(dump_srl_raw_results, raw_file)
 
     evaluate_keysent(gt, pred_useful)
 

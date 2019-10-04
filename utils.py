@@ -74,10 +74,12 @@ def parse_result(oie_results):
     return all_chunks
 
 
+excluded_types = {"ARGM-CAU", "ARGM-DIS", "ARGM-MOD", "ARGM-NEG", "ARGM-EXT", "ARGM-PNC", "ARGM-REC"}
+
 def filter_arguments(chunks):
     new_chunks = []
     for c in chunks:
-        if c['type'] != "ARG0" and "ARG" in c['type']:
+        if c['type'] != "ARG0" and "ARG" in c['type'] and c['type'] not in excluded_types:
             new_chunks.append(c)
         elif c['type'] == 'V':
             new_chunks.append(c)
