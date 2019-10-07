@@ -2,7 +2,8 @@ import os
 import csv
 from collections import defaultdict
 
-from srl_evaluator import get_dataset, evaluate, evaluate_keysent
+from srl_evaluator import get_dataset, evaluate, evaluate_keysent, get_pred_key_sent
+
 
 def is_match(key_sent, original_sent):
     original_match_string = ''.join(original_sent.split())
@@ -17,6 +18,7 @@ def is_match(key_sent, original_sent):
 
 if __name__ == '__main__':
     gt, sents, gt_verbs, gt_args = get_dataset()
+    sota_pred_keysent = get_pred_key_sent()
 
     kiddon_output_dir = "../RecipeInterpretation/data/select-chunked"
     pred_useful = defaultdict(list)
@@ -51,8 +53,15 @@ if __name__ == '__main__':
                 pred_args[youtube_id].append([])
                 pred_useful[youtube_id].append(0)
 
+    print("Key sentence:")
     evaluate_keysent(gt, pred_useful)
 
-    evaluate(gt_verbs, pred_verbs)
+    print("Verbs:")
+    for sota_pred in (None, sota_pred_keysent):
+        for fuzzy, partial_ratio in ((False, False), (True, False), (True, True)):
+            evaluate(gt_verbs, pred_verbs, fuzzy=fuzzy, partial_ratio=partial_ratio, sota_pred=sota_pred)
 
-    evaluate(gt_args, pred_args)
+    print("Arguments:")
+    for sota_pred in (None, sota_pred_keysent):
+        for fuzzy, partial_ratio in ((False, False), (True, False), (True, True)):
+            evaluate(gt_args, pred_args, fuzzy=fuzzy, partial_ratio=partial_ratio, sota_pred=sota_pred)

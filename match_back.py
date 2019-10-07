@@ -10,18 +10,6 @@ spacy_nlp = spacy.load('en_core_web_sm')
 lemmatizer = nltk.stem.WordNetLemmatizer()
 
 
-def filter_by_vocab(chunks, vocab):
-    ret = []
-    for chunk in chunks:
-        for idx, c in enumerate(chunk):
-            lemma = lemmatizer.lemmatize(c['text'], 'v')
-            if c['type'] == "V" and lemma in vocab:
-                chunk[idx]['text'] = lemma
-                ret.append(chunk)
-                break
-    return ret
-
-
 def process_annotation(string):
     if string:
         v = []

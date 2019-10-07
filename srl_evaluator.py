@@ -3,6 +3,7 @@ import pickle
 from collections import defaultdict
 
 import nltk
+from munkres import Munkres, make_cost_matrix
 from fuzzywuzzy import fuzz
 from sklearn.metrics import f1_score, accuracy_score, precision_score, recall_score
 
@@ -30,7 +31,8 @@ def process_gt_verbs(verb_str):
             ps = p.strip().lower()
             if ps:
                 # get root/first verb only
-                v.append(ps.split()[0])
+                # v.append(ps.split()[0])
+                v.append(ps)
         return v
     else:
         return []
@@ -76,52 +78,100 @@ def evaluate_keysent(gt, pred):
         assert len(gt[yid]) == len(pred[yid])
         y_true_useful.extend(gt[yid])
         y_pred_useful.extend(pred[yid])
-    print("Precision: ", precision_score(y_true_useful, y_pred_useful, average='binary'))
-    print("Recall: ", recall_score(y_true_useful, y_pred_useful, average='binary'))
-    print("F1 Score: ", f1_score(y_true_useful, y_pred_useful, average='binary'))
-    print("Acc: ", accuracy_score(y_true_useful, y_pred_useful))
+    print("Precision: ", "{:.1f}".format(precision_score(y_true_useful, y_pred_useful, average='binary') * 100))
+    print("Recall: ", "{:.1f}".format(recall_score(y_true_useful, y_pred_useful, average='binary') * 100))
+    print("F1 Score: ", "{:.1f}".format(f1_score(y_true_useful, y_pred_useful, average='binary') * 100 ))
+    print("Acc: ", "{:.1f}".format(accuracy_score(y_true_useful, y_pred_useful) * 100))
     print()
 
-def evaluate(gt, pred):
+def gt_compare(g, sota_pred, yid, idx):
+    if sota_pred and sota_pred[yid][idx]:
+        return True
+    elif g:
+        return True
+    else:
+        return False
+
+
+
+def evaluate(gt, pred, fuzzy=False, partial_ratio=True, sota_pred=None):
+    m = Munkres()
     total = 0
-    exact_precs = 0.0
-    exact_recalls = 0.0
-    fuzzy_precs = 0.0
-    fuzzy_recalls = 0.0
+    precs = 0.0
+    recalls = 0.0
     for yid in gt:
-        for g, p in zip(gt[yid], pred[yid]):
-            if g:
+        for i, (g, p) in enumerate(zip(gt[yid], pred[yid])):
+            if gt_compare(g, sota_pred, yid, i):
                 total += 1
-                # exact
-                tp = len(set(g).intersection(set(p)))
-                if len(set(p)) > 0:
-                    prec = tp / len(set(p))
+                if not fuzzy:
+                    # exact
+                    tp = len(set(g).intersection(set(p)))
+                    if len(set(p)) > 0:
+                        prec = tp / len(set(p))
+                    else:
+                        prec = 0.0
+                    if len(set(g)) > 0:
+                        recall = tp / len(set(g))
+                    else:
+                        recall = 0.0
+                    precs += prec
+                    recalls += recall
                 else:
-                    prec = 0.0
-                recall = tp / len(set(g))
-                exact_precs += prec
-                exact_recalls += recall
+                    # fuzzy
+                    fuzzy_tp = 0.0
+                    if len(set(p)) > 0 and len(set(g)) > 0:
+                        profit_matrix = []
+                        for idx, x in enumerate(set(g)):
+                            profit_matrix.append([])
+                            for y in set(p):
+                                if partial_ratio:
+                                    score = fuzz.partial_ratio(x, y)
+                                else:
+                                    score = fuzz.ratio(x, y)
+                                profit_matrix[idx].append(score)
+                                # if score > 75:
+                                #     fuzzy_tp += 1
+                                #     break
+                        indexes = m.compute(make_cost_matrix(profit_matrix))
+                        for row, column in indexes:
+                            value = profit_matrix[row][column]
+                            fuzzy_tp += value
+                        fuzzy_tp /= 100
 
-                # fuzzy
-                fuzzy_tp = 0
-                for x in set(g):
-                    for y in set(p):
-                        if fuzz.ratio(x, y) > 75:
-                            fuzzy_tp += 1
-                if len(set(p)) > 0:
-                    fuzzy_prec = fuzzy_tp / len(set(p))
-                else:
-                    fuzzy_prec = 0.0
-                fuzzy_recall = fuzzy_tp / len(set(g))
-                fuzzy_precs += fuzzy_prec
-                fuzzy_recalls += fuzzy_recall
-    print("Exact Precision: ", exact_precs / total)
-    print("Exact Recall: ", exact_recalls / total)
-    print("Exact F1: ", 2 * exact_precs * exact_recalls / (total * (exact_precs + exact_recalls)))
-    print("Fuzzy Precision: ", fuzzy_precs / total)
-    print("Fuzzy Recall: ", fuzzy_recalls / total)
-    print("Fuzzy F1: ", 2 * fuzzy_precs * fuzzy_recalls / (total * (fuzzy_precs + fuzzy_recalls)))
+                    if len(set(p)) > 0:
+                        fuzzy_prec = fuzzy_tp / len(set(p))
+                    else:
+                        fuzzy_prec = 0.0
+                    if len(set(g)) > 0:
+                        fuzzy_recall = fuzzy_tp / len(set(g))
+                    else:
+                        fuzzy_recall = 0.0
+                    precs += fuzzy_prec
+                    recalls += fuzzy_recall
+    if not fuzzy:
+        print("Exact:")
+    elif partial_ratio:
+        print("Partial Fuzzy:")
+    else:
+        print("Fuzzy:")
+    if sota_pred:
+        print("Use predicted")
+    else:
+        print("Use ground truth")
+    print("Precision: ", "{:.1f}".format(precs / total * 100))
+    print("Recall: ", "{:.1f}".format(recalls / total * 100))
+    print("F1: ", "{:.1f}".format(2 * precs * recalls / (total * (precs + recalls)) * 100))
     print()
+
+
+def get_pred_key_sent():
+    pred_keysent = defaultdict(list)
+    with open("youcook2/reviewed_0812.attach_key_sent_selection.tsv") as gt_f:
+        reader = csv.DictReader(gt_f, delimiter='\t')
+        for row in reader:
+            youtube_id = row['VideoUrl'].split('?v=')[1]
+            pred_keysent[youtube_id].append(int(row["key_sentence_prediction"]))
+    return pred_keysent
 
 
 def get_dataset():
@@ -164,6 +214,8 @@ if __name__ == '__main__':
 
     gt, sents, gt_verbs, gt_args = get_dataset()
 
+    sota_pred_keysent = get_pred_key_sent()
+
     pred_useful = defaultdict(list)
     pred_verbs = defaultdict(list)
     pred_args = defaultdict(list)
@@ -191,8 +243,18 @@ if __name__ == '__main__':
         with open("raw_srl.pkl", 'wb') as raw_file:
             pickle.dump(dump_srl_raw_results, raw_file)
 
+
+    print("Key sentence:")
     evaluate_keysent(gt, pred_useful)
 
-    evaluate(gt_verbs, pred_verbs)
+    print("Verbs:")
+    for sota_pred in (None, sota_pred_keysent):
+        for fuzzy, partial_ratio in ((False, False), (True, False), (True, True)):
+            evaluate(gt_verbs, pred_verbs, fuzzy=fuzzy, partial_ratio=partial_ratio, sota_pred=sota_pred)
 
-    evaluate(gt_args, pred_args)
+    print("Arguments:")
+    for sota_pred in (None, sota_pred_keysent):
+        for fuzzy, partial_ratio in ((False, False), (True, False), (True, True)):
+            evaluate(gt_args, pred_args, fuzzy=fuzzy, partial_ratio=partial_ratio, sota_pred=sota_pred)
+
+    write_predicted(pred_useful, pred_verbs, pred_args)
