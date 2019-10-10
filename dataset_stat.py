@@ -68,6 +68,8 @@ def get_stat(filter_keys):
     coref_count = 0
 
     # read data
+    total_token_num = 0
+    total_sent_num = 0
     sentences = defaultdict(list)
     annotations = defaultdict(list)
     with open("youcook2/reviewed_0812.csv", newline='', encoding='utf-8') as gt_f:
@@ -75,6 +77,8 @@ def get_stat(filter_keys):
         for sent_id, row in enumerate(reader):
             youtube_id = row['VideoUrl'].split('?v=')[1]
             sent = row['Sentence'] + ' '  # for later matching
+            total_token_num += len(sent.split())
+            total_sent_num += 1
             is_useful = int(row['IsUsefulSentence'])
             if is_useful:
                 key_clip_count += 1
@@ -90,7 +94,7 @@ def get_stat(filter_keys):
                 merged_anns.extend(annotation[k])
             sentences[youtube_id].append(sent)
             annotations[youtube_id].append(merged_anns)
-    print("Read complete")
+    print("Read complete, avg token per sentence: ", total_token_num / total_sent_num)
 
     for yid in sentences:
         for sent, annotation in zip(sentences[yid], annotations[yid]):

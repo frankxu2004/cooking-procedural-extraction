@@ -79,7 +79,7 @@ excluded_types = {"ARGM-CAU", "ARGM-DIS", "ARGM-MOD", "ARGM-NEG", "ARGM-EXT", "A
 def filter_arguments(chunks):
     new_chunks = []
     for c in chunks:
-        if c['type'] != "ARG0" and "ARG" in c['type'] and c['type'] not in excluded_types:
+        if c['type'] != "ARG0" and "ARG" in c['type'] and "R-" not in c['type'] and c['type'] not in excluded_types:
             new_chunks.append(c)
         elif c['type'] == 'V':
             new_chunks.append(c)

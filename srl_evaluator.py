@@ -2,6 +2,7 @@ import csv
 import pickle
 from collections import defaultdict
 
+import json
 import nltk
 from munkres import Munkres, make_cost_matrix
 from fuzzywuzzy import fuzz
@@ -69,6 +70,23 @@ def write_predicted(pred_useful, pred_verbs, pred_args):
             to_write['PredUseful'] = pred_u
             to_write['PredVerbs'] = pred_v
             to_write['PredArgs'] = pred_a
+            writer.writerow(to_write)
+
+
+def write_pred_summarize(pred_summarize):
+    with open("youcook2/reviewed_0812.csv", newline='', encoding='utf-8') as gt_f, \
+            open("youcook2/reviewed_0812_pred_for_summarize.csv", "w", newline='', encoding="utf-8") as out_f:
+        fieldnames = ["No", "Title", "VideoUrl", "TimeStamp", "Sentence", "RowNumber", "IsUsefulSentence", "Key steps",
+                      "Verb", "Object(directly related with Verb)", "Location", "Time", "Temperature",
+                      "Other important phrase(like with", "PredForSummarize"]
+        writer = csv.DictWriter(out_f, fieldnames=fieldnames, extrasaction='ignore')
+        writer.writeheader()
+        reader = csv.DictReader(gt_f)
+        for row in reader:
+            youtube_id = row['VideoUrl'].split('?v=')[1]
+            row_num = int(row['RowNumber'])
+            to_write = dict(row)
+            to_write['PredForSummarize'] = pred_summarize[youtube_id][row_num]
             writer.writerow(to_write)
 
 def evaluate_keysent(gt, pred):
@@ -196,7 +214,19 @@ def get_dataset():
             args[youtube_id].append(all_args)
     return data, sents, verbs, args
 
-def srl_post_heuristics(srl_chunks, vocab, pred_useful, pred_verbs, pred_args):
+def get_ordered_pred_for_summarize(chunks):
+    ordered_tups = []
+    for idx, tup in enumerate(chunks):
+        for item in tup:
+            if item['type'] == 'V':
+                ordered_tups.append([('V', item['text'])])
+                break
+        for item in sorted(tup, key = lambda i: i['type']):
+            if item['type'] != 'V':
+                ordered_tups[idx].append((item['type'], item['text']))
+    return ordered_tups
+
+def srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_args):
     filtered_chunks = filter_by_vocab(filter_chunks(srl_chunks), vocab)
     if len(filtered_chunks) == 0:
         pred_args[yid].append([])
@@ -206,6 +236,7 @@ def srl_post_heuristics(srl_chunks, vocab, pred_useful, pred_verbs, pred_args):
         pred_args[yid].append(get_args(filtered_chunks))
         pred_verbs[yid].append(get_verb(filtered_chunks))
         pred_useful[yid].append(1)
+    return filtered_chunks
 
 
 if __name__ == '__main__':
@@ -220,6 +251,8 @@ if __name__ == '__main__':
     pred_verbs = defaultdict(list)
     pred_args = defaultdict(list)
 
+    pred_for_summarize = defaultdict(list)
+
     if use_existing_srl_results:
         print("Reading SRL raw results")
         dump_srl_raw_results = pickle.load(open("raw_srl.pkl", 'rb'))
@@ -227,7 +260,9 @@ if __name__ == '__main__':
             assert len(sents[yid]) == len(dump_srl_raw_results[yid])
             for idx, sent in enumerate(sents[yid]):
                 srl_chunks = dump_srl_raw_results[yid][idx][1]
-                srl_post_heuristics(srl_chunks, vocab, pred_useful, pred_verbs, pred_args)
+                filtered_chunks = srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_args)
+                pred_for_summarize[yid].append(get_ordered_pred_for_summarize(filtered_chunks))
+
     else:
         srl_predictor = get_srl_predictor()
         dump_srl_raw_results = {}
@@ -237,7 +272,7 @@ if __name__ == '__main__':
                 srl = srl_predictor.predict_json({'sentence': sent})
                 srl_chunks = parse_result(srl)
                 dump_srl_raw_results[yid].append((sent, srl_chunks))
-                srl_post_heuristics(srl_chunks, vocab, pred_useful, pred_verbs, pred_args)
+                srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_args)
 
         print("Dumping SRL raw results")
         with open("raw_srl.pkl", 'wb') as raw_file:
@@ -258,3 +293,5 @@ if __name__ == '__main__':
             evaluate(gt_args, pred_args, fuzzy=fuzzy, partial_ratio=partial_ratio, sota_pred=sota_pred)
 
     write_predicted(pred_useful, pred_verbs, pred_args)
+    write_pred_summarize(pred_for_summarize)
+    json.dump([pred_verbs, pred_args], open('youcook2/srl_pred.json', 'w', encoding='utf-8'))
