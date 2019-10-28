@@ -147,9 +147,6 @@ def evaluate(gt, pred, fuzzy=False, partial_ratio=True, sota_pred=None):
                                 else:
                                     score = fuzz.ratio(x, y)
                                 profit_matrix[idx].append(score)
-                                # if score > 75:
-                                #     fuzzy_tp += 1
-                                #     break
                         indexes = m.compute(make_cost_matrix(profit_matrix))
                         for row, column in indexes:
                             value = profit_matrix[row][column]
@@ -217,17 +214,21 @@ def get_dataset():
 def get_ordered_pred_for_summarize(chunks):
     ordered_tups = []
     for idx, tup in enumerate(chunks):
+        ordered_tups.append([])
         for item in tup:
             if item['type'] == 'V':
-                ordered_tups.append([('V', item['text'])])
+                ordered_tups[idx].append(('V', item['text']))
                 break
         for item in sorted(tup, key = lambda i: i['type']):
             if item['type'] != 'V':
                 ordered_tups[idx].append((item['type'], item['text']))
     return ordered_tups
 
-def srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_args):
-    filtered_chunks = filter_by_vocab(filter_chunks(srl_chunks), vocab)
+def srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_args, do_post=True):
+    if do_post:
+        filtered_chunks = filter_by_vocab(filter_chunks(srl_chunks), vocab)
+    else:
+        filtered_chunks = srl_chunks
     if len(filtered_chunks) == 0:
         pred_args[yid].append([])
         pred_verbs[yid].append([])
@@ -242,6 +243,7 @@ def srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_ar
 if __name__ == '__main__':
     vocab = read_vocab('youcook2/1.2.cooking_vocab.strict_filtered.unsorted.lst')
     use_existing_srl_results = True
+    use_post_heuristics = True
 
     gt, sents, gt_verbs, gt_args = get_dataset()
 
@@ -260,7 +262,8 @@ if __name__ == '__main__':
             assert len(sents[yid]) == len(dump_srl_raw_results[yid])
             for idx, sent in enumerate(sents[yid]):
                 srl_chunks = dump_srl_raw_results[yid][idx][1]
-                filtered_chunks = srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_args)
+                filtered_chunks = srl_post_heuristics(srl_chunks, yid, vocab, pred_useful, pred_verbs, pred_args,
+                                                      do_post=use_post_heuristics)
                 pred_for_summarize[yid].append(get_ordered_pred_for_summarize(filtered_chunks))
 
     else:
